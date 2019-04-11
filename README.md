@@ -3,6 +3,7 @@ Spring Boot based property file generator
 
 ## Dependencies
 At least: Java 8 and Maven 3.5
+
 Running: https://github.com/wlanboy/ServiceRegistry
 
 Running: https://github.com/wlanboy/ServiceConfig
