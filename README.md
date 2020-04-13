@@ -1,8 +1,10 @@
+![Java CI with Maven](https://github.com/wlanboy/CloudConfigPropertyGenerator/workflows/Java%20CI%20with%20Maven/badge.svg?branch=master)
+
 # Spring Cloud Config property file generator
 Spring Boot and Spring Cloud Config based property file generator
 
 ## Dependencies
-At least: Java 1 and Maven 3.5
+At least: Java 11 and Maven 3.5
 
 Running: https://github.com/wlanboy/ServiceConfig
 
