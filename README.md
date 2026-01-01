@@ -3,7 +3,7 @@ Spring Boot and Spring Cloud Config based property file generator
 > Loads profiles from Spring Cloud Config server and generates a bootstrap.properties file.
 
 ## Dependencies
-At least: Java 11 and Maven 3.5
+At least: Java 21 and Maven 3.5
 
 Running: https://github.com/wlanboy/ServiceConfig
 
