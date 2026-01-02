@@ -1,6 +1,7 @@
 # Spring Cloud Config property file generator
-Spring Boot and Spring Cloud Config based property file generator
-> Loads profiles from Spring Cloud Config server and generates a bootstrap.properties file.
+Spring Boot and Spring Cloud Config based property file generator to migrate from Spring Cloud Config Server.
+Loads profiles from Spring Cloud Config server and generates a bootstrap.properties file as a start for your ConfigMap.
+
 
 ## Dependencies
 At least: Java 21 and Maven 3.5
