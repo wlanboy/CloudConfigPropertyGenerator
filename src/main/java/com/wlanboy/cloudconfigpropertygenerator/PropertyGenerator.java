@@ -1,71 +1,127 @@
 package com.wlanboy.cloudconfigpropertygenerator;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
-import java.util.Properties;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.stereotype.Component;
-import org.springframework.util.DefaultPropertiesPersister;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
 
 @Component
 public class PropertyGenerator implements CommandLineRunner {
 
-	private final Logger logger = LoggerFactory.getLogger(PropertyGenerator.class);
+	private static final Logger log = LoggerFactory.getLogger(PropertyGenerator.class);
 
-	@Autowired
-	ConfigurableEnvironment env;
-	
-	@Value("${PROPERTY_FILE_TO_WRITE}")
-	String PROPERTY_FILE_TO_WRITE;
-	
+	private final ConfigurableEnvironment env;
+
+	@Value("${CONFIGMAP_FILE_TO_WRITE:configmap.yaml}")
+	private String configmapFileToWrite;
+
 	@Value("${spring.application.name}")
-	String APPLICATION_NAME;
+	private String applicationName;
+
+	public PropertyGenerator(ConfigurableEnvironment env) {
+		this.env = env;
+	}
 
 	@Override
 	public void run(String... args) throws Exception {
-		logger.info("Generating properties");
-		String key = null;
-		String value = null;
+		log.info("Merging all properties from Spring Environment");
 
-		Properties propertyFile = new Properties();
-		
-		for (PropertySource<?> propertySource : env.getPropertySources()) {
-			if (propertySource instanceof EnumerablePropertySource) {
-				logger.info("=====================================================================");
-				logger.info("propertySource: " + propertySource.getName());
+		Properties merged = new Properties();
 
-				if ("bootstrapProperties".equals(propertySource.getName())) {
-					String[] propertyNames = ((EnumerablePropertySource<?>) propertySource).getPropertyNames();
-					for (int i = 0; i < propertyNames.length; i++) {
-						key = propertyNames[i];
-						value = String.valueOf(propertySource.getProperty(key));
-						logger.info(key + " -- " + value);
-						propertyFile.setProperty(key, value);
-					}
+		for (PropertySource<?> ps : env.getPropertySources()) {
+
+			// ❌ System Environment komplett ignorieren
+			if (ps.getName().contains("systemEnvironment")) {
+				continue;
+			}
+
+			// ❌ System Properties komplett ignorieren
+			if (ps.getName().contains("systemProperties")) {
+				continue;
+			}
+
+			if (ps instanceof EnumerablePropertySource<?> enumerable) {
+
+				log.info("Reading PropertySource: {}", ps.getName());
+
+				for (String key : enumerable.getPropertyNames()) {
+
+					if (isIgnoredKey(key))
+						continue;
+
+					Object value = ps.getProperty(key);
+					if (value == null)
+						continue;
+
+					String cleaned = sanitizeValue(String.valueOf(value));
+					merged.put(key, cleaned);
 				}
-				logger.info("=====================================================================");
 			}
 		}
 
-		try {
-			File f = new File(PROPERTY_FILE_TO_WRITE);
-			OutputStream out = new FileOutputStream(f);
-			DefaultPropertiesPersister p = new DefaultPropertiesPersister();
-			p.store(propertyFile, out, "Header: "+APPLICATION_NAME);
-			out.close();
-		} catch (Exception e) {
-			logger.error("DefaultPropertiesPersister",e);
-		}
+		Properties sorted = sortProperties(merged);
 
+		writeConfigMap(sorted);
+
+		log.info("Finished generating Kubernetes ConfigMap");
 	}
 
+	private boolean isIgnoredKey(String key) {
+		return key.startsWith("management.endpoint.") ||
+				key.startsWith("logging.") ||
+				key.startsWith("spring.liveBeansView") ||
+				key.contains("password") ||
+				key.contains("secret");
+	}
+
+	private String sanitizeValue(String value) {
+		return value.replace("\n", "")
+				.replace("\r", "")
+				.replace("\t", "")
+				.trim()
+				.replace("\"", "\\\"");
+	}
+
+	private Properties sortProperties(Properties props) {
+		Properties sorted = new Properties();
+		props.keySet().stream()
+				.map(String.class::cast)
+				.sorted()
+				.forEach(k -> sorted.put(k, props.getProperty(k)));
+		return sorted;
+	}
+
+	private void writeConfigMap(Properties props) {
+		try {
+			Path path = Path.of(configmapFileToWrite);
+			log.info("Writing ConfigMap to {}", path.toAbsolutePath());
+
+			StringBuilder yaml = new StringBuilder();
+			yaml.append("apiVersion: v1\n");
+			yaml.append("kind: ConfigMap\n");
+			yaml.append("metadata:\n");
+			yaml.append("  name: ").append(applicationName).append("-config\n");
+			yaml.append("data:\n");
+			yaml.append("  application.properties: |\n");
+
+			for (String key : props.stringPropertyNames()) {
+				yaml.append("    ").append(key).append("=")
+						.append(props.getProperty(key))
+						.append("\n");
+			}
+
+			Files.writeString(path, yaml.toString());
+
+		} catch (Exception e) {
+			log.error("Error writing ConfigMap", e);
+		}
+	}
 }
