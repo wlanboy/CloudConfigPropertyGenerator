@@ -20,7 +20,7 @@ public class PropertyGenerator implements CommandLineRunner {
 
 	private final ConfigurableEnvironment env;
 
-	@Value("${CONFIGMAP_FILE_TO_WRITE:configmap.yaml}")
+	@Value("${CONFIGMAP_FILE_TO_WRITE:/output/configmap.yaml}")
 	private String configmapFileToWrite;
 
 	@Value("${spring.application.name}")

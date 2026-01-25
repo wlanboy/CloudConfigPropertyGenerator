@@ -15,7 +15,10 @@ mvn package
 
 ## Konfigure property generator
 ```bash
-vim bootstrap.properties
+export SPRING_CLOUD_CONFIG_URI=http://127.0.0.1:8888
+export SPRING_PROFILES_ACTIVE=test,info
+export SPRING_APPLICATION_NAME=sample
+export CONFIGMAP_FILE_TO_WRITE=./output
 ```
 
 ## Run property generator
@@ -25,19 +28,20 @@ java -jar target/cloudconfigpropertygenerator-0.0.1-SNAPSHOT.jar
 
 ## build docker image
 ```bash
-docker build -t propertygenerator:latest . --build-arg JAR_FILE=./target/cloudconfigpropertygenerator-0.0.1-SNAPSHOT.jar
+docker build -t propertygenerator:latest . 
 ```
 
 ## run docker image
 ```bash
 mkdir output
+chmod 777 output
 
 docker run --rm \
-  -v $(pwd)/application.properties:/application.properties \
-  -v $(pwd)/bootstrap.properties:/bootstrap.properties \
+  --env-file .env \
+  --add-host=host.docker.internal:host-gateway \
+  -v $(pwd)/application.properties:/app/config/application.properties \
   -v $(pwd)/output:/output \
-  -e CONFIGMAP_FILE_TO_WRITE=/output/configmap.yaml \
-  wlanboy/propertygenerator:latest
+  propertygenerator:latest
 ```
 
 ## output

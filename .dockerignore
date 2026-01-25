@@ -1,0 +1,6 @@
+.env
+containerconfig/
+output/
+.git/
+.vscode/
+*.md
