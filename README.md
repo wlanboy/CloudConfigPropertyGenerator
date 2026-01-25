@@ -4,7 +4,7 @@ Loads profiles from Spring Cloud Config server and generates a Kubernetes Config
 
 
 ## Dependencies
-At least: Java 21 and Maven 3.5
+At least: Java 25 and Maven 3.9
 
 Running: https://github.com/wlanboy/ServiceConfig
 
