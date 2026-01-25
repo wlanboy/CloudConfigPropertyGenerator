@@ -1,12 +1,9 @@
 package com.wlanboy.cloudconfigpropertygenerator;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit4.SpringRunner;
 
-@RunWith(SpringRunner.class)
-@SpringBootTest
+@SpringBootTest(properties = "CONFIGMAP_FILE_TO_WRITE=./output/configmap.yaml")
 public class CloudconfigpropertygeneratorApplicationTests {
 
 	@Test

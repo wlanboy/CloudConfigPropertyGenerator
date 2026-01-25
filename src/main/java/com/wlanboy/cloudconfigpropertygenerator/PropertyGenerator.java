@@ -104,6 +104,12 @@ public class PropertyGenerator implements CommandLineRunner {
 			Path path = Path.of(configmapFileToWrite);
 			log.info("Writing ConfigMap to {}", path.toAbsolutePath());
 
+			Path parent = path.getParent();
+			if (parent != null && !Files.exists(parent)) {
+				Files.createDirectories(parent);
+				log.info("Created directory {}", parent.toAbsolutePath());
+			}
+
 			StringBuilder yaml = new StringBuilder();
 			yaml.append("apiVersion: v1\n");
 			yaml.append("kind: ConfigMap\n");
