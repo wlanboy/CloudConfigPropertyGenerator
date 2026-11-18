@@ -28,8 +28,17 @@ java -jar target/cloudconfigpropertygenerator-0.0.1-SNAPSHOT.jar
 
 ## build docker image
 ```bash
-docker build -t propertygenerator:latest . 
+docker build -t propertygenerator:latest .
 ```
+
+The image is based on UBI 10 (`ubi10/openjdk-25-runtime`) and ships a JDK AOT cache for faster startup.
+Heap and other JVM settings are defaults in `JAVA_TOOL_OPTIONS`. To change them, pass the complete set:
+
+```bash
+-e JAVA_TOOL_OPTIONS="-Xms64m -Xmx256m -Xss512k -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=48m -XX:TieredStopAtLevel=1 -XX:ActiveProcessorCount=2 -XX:+ExitOnOutOfMemoryError"
+```
+
+Do not set a garbage collector in `JAVA_TOOL_OPTIONS`; the image uses SerialGC and the AOT cache depends on it.
 
 ## run docker image
 ```bash

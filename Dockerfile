@@ -1,85 +1,75 @@
-# ============================
-# 1. Build Stage (Java 25)
-# ============================
-FROM registry.access.redhat.com/ubi9/openjdk-25:latest AS build
-# Eclipse Temurin bietet aktuelle Java-Versionen inkl. Java 25
-
-WORKDIR /app
-
-COPY pom.xml .
-# → Nur die pom.xml wird kopiert, damit Maven bereits alle Dependencies auflösen kann,
-#   ohne dass sich der Sourcecode ändert. Das verbessert das Layer-Caching.
-
-RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests dependency:go-offline
-# → Lädt alle Maven-Dependencies vorab herunter.
-# → --mount=type=cache sorgt dafür, dass das lokale Maven-Repository zwischen Builds gecached wird.
-
-COPY src ./src
-# → Jetzt erst der Sourcecode, damit Änderungen am Code nicht das Dependency-Layer invalidieren.
-
-RUN --mount=type=cache,target=/root/.m2 mvn -q -DskipTests compile package
-# → Baut das eigentliche JAR mit AOT (Ahead-of-Time) Processing.
-# → compile: Kompiliert die Klassen (notwendig für process-aot).
-# → package: Baut das finale JAR inkl. AOT-Klassen.
-# → Wieder mit Maven-Cache, um Build-Zeit zu sparen.
-
-RUN cp target/cloudconfigpropertygenerator-0.0.1-SNAPSHOT.jar app.jar && \
-    java -Djarmode=tools -jar app.jar extract --layers --launcher --destination extracted
-# → Spring Boot 4.x Layertools: --launcher ist erforderlich um den Loader zu extrahieren
-# → Extrahierte Layer:
-#     - dependencies (BOOT-INF/lib)
-#     - spring-boot-loader (org/springframework/boot/loader/*)
-#     - snapshot-dependencies
-#     - application (BOOT-INF/classes)
-# → Vorteil: Docker kann diese Layer getrennt cachen → schnellere Deployments.
+# Beide Stages nutzen dasselbe Tag: Der AOT-Cache verlangt exakt denselben JVM-Build.
+ARG UBI_TAG=latest
 
 # ============================
-# 2. Runtime Stage (Java 25)
+# 1. Build Stage
 # ============================
-FROM registry.access.redhat.com/ubi9/openjdk-25-runtime:latest
-
-# OCI-konforme Labels
-LABEL org.opencontainers.image.title="Cloud Config Generator" \
-      org.opencontainers.image.description="Spring based generator to switch from Spring Cloud Config Server to Configmaps" \
-      org.opencontainers.image.version="0.0.1-SNAPSHOT" \
-      org.opencontainers.image.vendor="wlanboy" \
-      org.opencontainers.image.source="CloudConfigPropertyGenerator" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.base.name="ubi9/openjdk-25-runtime"
-
-WORKDIR /app
+FROM registry.access.redhat.com/ubi10/openjdk-25:${UBI_TAG} AS build
 
 USER root
-# → Temporär root, um Verzeichnisse anzulegen und Berechtigungen zu setzen.
+RUN mkdir /build /app && chown 185:0 /build /app
+USER 185
+WORKDIR /build
 
-RUN mkdir -p /app/config /app/data && \
-    chown -R 185:0 /app && \
-    chmod -R g+w /app
-# → /app/config: für externe Konfigurationen
-# → /app/data: für persistente Daten
-# → Non-root User für sicheren Betrieb
+# Erst nur die pom.xml: Der Dependency-Layer bleibt gecacht, solange sich nur der Code ändert.
+COPY pom.xml .
+RUN --mount=type=cache,target=/home/default/.m2,uid=185 mvn -q dependency:go-offline
+
+COPY src ./src
+# Kein spring-boot:process-aot: Mit Spring Cloud Bootstrap erfasst Spring AOT nur den
+# Bootstrap-Kontext, der PropertyGenerator fehlt dann zur Laufzeit.
+RUN --mount=type=cache,target=/home/default/.m2,uid=185 \
+    mvn -q -Dmaven.test.skip=true package
+
+# Thin-JAR: application/app.jar verweist per Class-Path auf lib/*.jar.
+RUN JAR=$(ls target/*.jar | grep -v original) && \
+    java -Djarmode=tools -jar "$JAR" extract --layers --application-filename app.jar --destination extracted
+
+WORKDIR /app
+RUN for layer in dependencies spring-boot-loader snapshot-dependencies application; do \
+      [ -d /build/extracted/$layer ] && cp -a /build/extracted/$layer/. /app/; \
+    done
+
+# JDK-AOT-Cache trainieren: kompletter Lauf ohne Config-Server, die ConfigMap landet in /tmp.
+# GC- und Header-Flags müssen wortgleich im ENTRYPOINT stehen.
+RUN java -XX:AOTCacheOutput=/app/app.aot \
+         -XX:+UseSerialGC -XX:+UseCompactObjectHeaders \
+         -Dspring.cloud.config.enabled=false -Dspring.application.name=aot-training \
+         -DCONFIGMAP_FILE_TO_WRITE=/tmp/aot-training.yaml \
+         -jar /app/app.jar
+
+# ============================
+# 2. Runtime Stage
+# ============================
+FROM registry.access.redhat.com/ubi10/openjdk-25-runtime:${UBI_TAG}
+
+LABEL org.opencontainers.image.title="cloudconfigpropertygenerator" \
+      org.opencontainers.image.description="Generates a Kubernetes ConfigMap from Spring Cloud Config Server profiles" \
+      org.opencontainers.image.version="0.0.1-SNAPSHOT" \
+      org.opencontainers.image.vendor="wlanboy" \
+      org.opencontainers.image.source="https://github.com/wlanboy/CloudConfigPropertyGenerator" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="registry.access.redhat.com/ubi10/openjdk-25-runtime"
 
 USER 185
-# → Zurück zum nicht-privilegierten User.
+WORKDIR /app
 
-COPY --from=build --chown=185:185 /app/extracted/dependencies/ ./
-# → Kopiert nur die Dependency-Layer. Ändern sich selten.
+# Seltenste Änderung zuerst.
+COPY --from=build --chown=185:185 /build/extracted/dependencies/ ./
+COPY --from=build --chown=185:185 /build/extracted/spring-boot-loader/ ./
+COPY --from=build --chown=185:185 /build/extracted/snapshot-dependencies/ ./
+COPY --from=build --chown=185:185 /build/extracted/application/ ./
+COPY --from=build --chown=185:185 /app/app.aot ./app.aot
 
-COPY --from=build --chown=185:185 /app/extracted/spring-boot-loader/ ./
-# → Enthält den Spring Boot Launcher (Main-Class Loader). Ändern sich selten.
+# Spring lädt ./config/application.properties relativ zum WORKDIR automatisch.
+COPY --chown=185:0 application.properties /app/config/application.properties
 
-COPY --from=build --chown=185:185 /app/extracted/snapshot-dependencies/ ./
-# → Snapshot-Dependencies (z. B. lokale libs), ändern sich häufiger.
+ENV JAVA_TOOL_OPTIONS="-Xms64m -Xmx192m -Xss512k \
+  -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=48m -XX:TieredStopAtLevel=1 \
+  -XX:ActiveProcessorCount=2 -XX:+ExitOnOutOfMemoryError"
 
-COPY --from=build --chown=185:185 /app/extracted/application/ ./
-# → Der eigentliche Applikationscode (Kompilat). Ändert sich.
-
-COPY --chown=185:185 application.properties /app/config/application.properties
-# → Externe Konfiguration ins Config-Verzeichnis für die Referenz für ENV Vars
-
-COPY --chown=185:185 entrypoint.sh /app/entrypoint.sh
-# → Custom Entrypoint für Java OPTS.
-
-ENTRYPOINT ["/app/entrypoint.sh"]
-# → Startet die App über das Entry-Skript.
-# → Vorteil: Skript kann Umgebungsvariablen verarbeiten, ENTRYPOINT nicht.
+ENTRYPOINT ["java", \
+  "-XX:AOTCache=/app/app.aot", \
+  "-XX:+UseSerialGC", \
+  "-XX:+UseCompactObjectHeaders", \
+  "-jar", "/app/app.jar"]

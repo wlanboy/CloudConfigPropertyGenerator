@@ -1,6 +1,8 @@
 .env
 containerconfig/
 output/
+target/
+chart*/
 .git/
 .vscode/
 *.md
