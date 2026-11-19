@@ -31,7 +31,7 @@ java -jar target/cloudconfigpropertygenerator-0.0.1-SNAPSHOT.jar
 docker build -t propertygenerator:latest .
 ```
 
-The image is based on UBI 10 (`ubi10/openjdk-25-runtime`) and ships a JDK AOT cache for faster startup.
+The image is based on Eclipse Temurin (`eclipse-temurin:25-jre`) and ships a JDK AOT cache for faster startup.
 Heap and other JVM settings are defaults in `JAVA_TOOL_OPTIONS`. To change them, pass the complete set:
 
 ```bash
